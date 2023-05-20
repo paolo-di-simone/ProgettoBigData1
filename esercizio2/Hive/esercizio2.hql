@@ -1,5 +1,5 @@
+
 DROP TABLE IF EXISTS reviews_doc;
-DROP TABLE IF EXISTS reviews;
 DROP TABLE IF EXISTS reviews_tmp;
 
 CREATE TABLE reviews_doc (id STRING, product_id STRING, user_id STRING, profile_name STRING,
@@ -8,25 +8,22 @@ CREATE TABLE reviews_doc (id STRING, product_id STRING, user_id STRING, profile_
 ROW FORMAT DELIMITED
 FIELDS TERMINATED BY ',';
 
-LOAD DATA LOCAL INPATH '/home/paolods/Desktop/ProgettoBigData/Dataset/n_input/Reviews-100000.csv' OVERWRITE INTO TABLE reviews_doc;
-
-ADD FILE Desktop/ProgettoBigData/esercizio2/Hive/make_quality.py;
-
-CREATE TABLE reviews AS
-	SELECT TRANSFORM(reviews_doc.user_id, reviews_doc.helpfulness_numerator, reviews_doc.helpfulness_denominator)
-	    USING 'python3 Desktop/ProgettoBigData/esercizio2/Hive/make_quality.py' AS user_id, quality
-	FROM reviews_doc;
-
+LOAD DATA LOCAL INPATH '/home/paolods/Desktop/ProgettoBigData/Dataset/Reviews-Parsed.csv' OVERWRITE INTO TABLE reviews_doc;
+    
 CREATE TABLE reviews_tmp AS
     SELECT user_id, AVG(quality) as mean_quality
-    FROM reviews AS r
-    GROUP BY r.user_id;
+    FROM (
+        SELECT user_id, CASE
+            WHEN helpfulness_numerator = 0 OR helpfulness_denominator = 0 THEN 0
+            ELSE 1.0 * helpfulness_numerator / helpfulness_denominator
+          END AS quality
+        FROM reviews_doc
+    ) tmp
+    GROUP BY user_id;
     
-
 INSERT OVERWRITE LOCAL DIRECTORY '/home/paolods/Desktop/ProgettoBigData/esercizio2/Hive/dir0'
 ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t'
 SELECT * FROM reviews_tmp ORDER BY mean_quality DESC;
 
 DROP TABLE IF EXISTS reviews_doc;
-DROP TABLE IF EXISTS reviews;
 DROP TABLE IF EXISTS reviews_tmp;

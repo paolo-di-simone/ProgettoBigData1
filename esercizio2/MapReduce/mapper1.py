@@ -2,6 +2,13 @@
 """mapper.py"""
 
 import sys
+import logging
+import time
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+start_time = time.time()
 
 # read lines from STDIN (standard input)
 for line in sys.stdin:
@@ -39,3 +46,8 @@ for line in sys.stdin:
         continue
 
     print("%s\t%f" % (user_id, utility))
+
+end_time = time.time()
+execution_time = end_time - start_time
+
+logger.info("TEMPO mapper1: %s s", execution_time)

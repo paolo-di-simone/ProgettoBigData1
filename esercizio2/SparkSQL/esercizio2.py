@@ -1,37 +1,68 @@
 #!/usr/bin/env python3
 """spark application"""
 
-import argparse
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col
+import sys
+import logging
+import time
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-# create parser and set its arguments
-parser = argparse.ArgumentParser()
-parser.add_argument("--input_path", type=str, help="Input file path")
-parser.add_argument("--output_path", type=str, help="Output folder path")
+start_time = time.time()
 
-# parse arguments
-args = parser.parse_args()
-input_filepath, output_filepath = args.input_path, args.output_path
+warehouse_path = "/user/hive/warehouse"
 
 # initialize SparkSession with the proper configuration
-spark = SparkSession.builder.appName("Spark Quality").getOrCreate()
+spark = SparkSession \
+    .builder \
+    .appName("Spark SQL Quality") \
+    .config("spark.sql.warehouse.dir", warehouse_path) \
+    .enableHiveSupport() \
+    .getOrCreate()
 
-df = spark.read.load(input_filepath, format="csv", sep=",", inferSchema="true", header="true")
+spark.sql("DROP TABLE IF EXISTS reviews_doc")
+spark.sql("DROP TABLE IF EXISTS reviews_tmp")
 
-df = df.withColumn("Quality", col("HelpfulnessNumerator") / col("HelpfulnessDenominator"))
+spark.sql("""
+    CREATE TABLE reviews_doc (
+        id STRING, product_id STRING, user_id STRING, profile_name STRING,
+        helpfulness_numerator INT, helpfulness_denominator INT,
+        score INT, time_string INT, summary STRING, text STRING
+    )
+    ROW FORMAT DELIMITED
+    FIELDS TERMINATED BY ','
+""")
 
-df = df.na.fill(0, subset=["Quality"])
+spark.sql('''
+    LOAD DATA LOCAL INPATH '/home/paolods/Desktop/ProgettoBigData/Dataset/Reviews-Parsed.csv' OVERWRITE INTO TABLE reviews_doc;
+''')
 
-df = df.groupBy("UserId").mean("Quality")
+spark.sql("""
+    CREATE TABLE reviews_tmp AS
+        SELECT user_id, AVG(quality) as mean_quality
+        FROM (
+            SELECT user_id, CASE
+                WHEN helpfulness_numerator = 0 OR helpfulness_denominator = 0 THEN 0
+                ELSE 1.0 * helpfulness_numerator / helpfulness_denominator
+              END AS quality
+            FROM reviews_doc
+        ) tmp
+        GROUP BY user_id
+""")
 
-df = df.withColumnRenamed("avg(Quality)", "MeanQuality")
+spark.sql('''
+    INSERT OVERWRITE LOCAL DIRECTORY '/home/paolods/Desktop/ProgettoBigData/esercizio2/SparkSQL/dir0'
+    ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t'
+    SELECT * FROM reviews_tmp ORDER BY mean_quality DESC
+''')
 
-df = df.orderBy(df["MeanQuality"].desc())
+spark.sql("DROP TABLE IF EXISTS reviews_doc")
+spark.sql("DROP TABLE IF EXISTS reviews_tmp")
 
-df.show()
+end_time = time.time()
+execution_time = end_time - start_time
 
-df.write.save(output_filepath, format="csv", delimiter="\t")
+logger.info("TEMPO spark core: %s s", execution_time)
 
 spark.stop()
